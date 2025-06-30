@@ -24,10 +24,24 @@ if scope == "local":
     project_path = os.path.expanduser(path)
 
     if not os.path.exists(project_path):
-        print("Error: Path does not exist.")
-        exit()
+        print("That folder doesn't exist.")
+        create = input("Do you want to create it? (y/n): ").strip().lower()
+        if create == "y":
+            try:
+                os.makedirs(project_path)
+                print(f"Folder created at {project_path}")
+            except Exception as e:
+                print("Failed to create folder:", e)
+                exit()
+        else:
+            print("Canceled. Provide a valid existing path next time.")
+            exit()
 
-    os.chdir(project_path)
+    try:
+        os.chdir(project_path)
+    except Exception as e:
+        print("Failed to enter directory:", e)
+        exit()
 
     if not os.path.isdir(".git"):
         subprocess.run(["git", "init"])
