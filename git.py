@@ -3,6 +3,13 @@ import platform
 import subprocess
 import shutil
 
+def try_clipboard_copy(command, input_text=None, shell=True):
+    try:
+        result = subprocess.run(command, input=input_text.encode() if input_text else None, shell=shell)
+        return result.returncode == 0
+    except Exception:
+        return False
+
 # Step 1: Get user info
 name = input("Git username: ")
 email = input("Git email: ")
@@ -97,9 +104,12 @@ try:
         if is_wayland:
             print("Wayland session detected. Using wl-copy.")
             if shutil.which("wl-copy"):
-                subprocess.run(f"echo '{public_key}' | wl-copy", shell=True)
-                clipboard_copied = True
-                print("SSH key copied using wl-copy.")
+                copied = try_clipboard_copy(f"echo '{public_key}' | wl-copy")
+                if copied:
+                    clipboard_copied = True
+                    print("SSH key copied using wl-copy.")
+                else:
+                    print("Clipboard command ran but may not have copied. Paste manually if needed.")
             else:
                 print("wl-copy not found. Attempting to install wl-clipboard...")
                 try:
@@ -113,20 +123,24 @@ try:
                         raise PermissionError("No sudo/root access")
 
                     if shutil.which("wl-copy"):
-                        subprocess.run(f"echo '{public_key}' | wl-copy", shell=True)
-                        clipboard_copied = True
-                        print("SSH key copied using wl-copy after install.")
-                    else:
-                        print("wl-copy still not found after install.")
+                        copied = try_clipboard_copy(f"echo '{public_key}' | wl-copy")
+                        if copied:
+                            clipboard_copied = True
+                            print("SSH key copied using wl-copy after install.")
+                        else:
+                            print("Clipboard command ran but may not have copied. Paste manually if needed.")
                 except Exception as e:
                     print("Failed to install wl-clipboard:", e)
 
         else:
             print("X11 session detected or fallback mode. Using xclip.")
             if shutil.which("xclip"):
-                subprocess.run(f"echo '{public_key}' | xclip -selection clipboard", shell=True)
-                clipboard_copied = True
-                print("SSH key copied using xclip.")
+                copied = try_clipboard_copy(f"echo '{public_key}' | xclip -selection clipboard")
+                if copied:
+                    clipboard_copied = True
+                    print("SSH key copied using xclip.")
+                else:
+                    print("Clipboard command ran but may not have copied. Paste manually if needed.")
             else:
                 print("xclip not found. Attempting to install it...")
                 try:
@@ -140,27 +154,34 @@ try:
                         raise PermissionError("No sudo/root access")
 
                     if shutil.which("xclip"):
-                        subprocess.run(f"echo '{public_key}' | xclip -selection clipboard", shell=True)
-                        clipboard_copied = True
-                        print("SSH key copied using xclip after install.")
-                    else:
-                        print("xclip still not found after install.")
+                        copied = try_clipboard_copy(f"echo '{public_key}' | xclip -selection clipboard")
+                        if copied:
+                            clipboard_copied = True
+                            print("SSH key copied using xclip after install.")
+                        else:
+                            print("Clipboard command ran but may not have copied. Paste manually if needed.")
                 except Exception as e:
                     print("Failed to install xclip:", e)
 
     elif "darwin" in os_type:
         if shutil.which("pbcopy"):
-            subprocess.run(f"echo '{public_key}' | pbcopy", shell=True)
-            clipboard_copied = True
-            print("SSH key copied using pbcopy.")
+            copied = try_clipboard_copy(f"echo '{public_key}' | pbcopy")
+            if copied:
+                clipboard_copied = True
+                print("SSH key copied using pbcopy.")
+            else:
+                print("Clipboard command ran but may not have copied. Paste manually if needed.")
         else:
             print("pbcopy not found on macOS.")
 
     elif "windows" in os_type:
         if shutil.which("clip"):
-            subprocess.run("clip", input=public_key.encode(), shell=True)
-            clipboard_copied = True
-            print("SSH key copied using clip.")
+            copied = try_clipboard_copy("clip", input_text=public_key)
+            if copied:
+                clipboard_copied = True
+                print("SSH key copied using clip.")
+            else:
+                print("Clipboard command ran but may not have copied. Paste manually if needed.")
         else:
             print("clip command not found on Windows.")
 
