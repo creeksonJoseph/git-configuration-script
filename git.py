@@ -59,16 +59,13 @@ ssh_path = f"~/.ssh/{key_name}"
 ssh_path_expanded = os.path.expanduser(ssh_path)
 pub_key_path = f"{ssh_path_expanded}.pub"
 
-# Check if key exists
 if os.path.exists(ssh_path_expanded) or os.path.exists(pub_key_path):
     print("Warning: SSH key with that name already exists.")
     choice = input("Do you want to overwrite it? (y/n): ").strip().lower()
     if choice == "y":
         try:
-            if os.path.exists(ssh_path_expanded):
-                os.remove(ssh_path_expanded)
-            if os.path.exists(pub_key_path):
-                os.remove(pub_key_path)
+            os.remove(ssh_path_expanded)
+            os.remove(pub_key_path)
             print("Old key deleted.")
         except Exception as e:
             print("Failed to delete existing keys:", e)
@@ -93,119 +90,88 @@ subprocess.run(config_args + ["user.email", email])
 if scope == "local":
     subprocess.run(["git", "config", "core.sshCommand", f"ssh -i {ssh_path_expanded} -F /dev/null"])
 
-# Step 8: Start SSH agent & add the key
+# Step 8: Start SSH agent & add key
 print("Starting SSH agent and adding key...")
 subprocess.run("eval $(ssh-agent -s)", shell=True)
-subprocess.run(["ssh-add", ssh_path_expanded])
 
-# Step 9: Show and optionally copy the public key
+os_type = platform.system().lower()
+use_keychain = False
+clipboard_copied = False
+
+if "darwin" in os_type:
+    # macOS Keychain support
+    use_keychain = shutil.which("ssh-add") is not None
+    if use_keychain:
+        subprocess.run(["ssh-add", "--apple-use-keychain", ssh_path_expanded])
+    else:
+        subprocess.run(["ssh-add", ssh_path_expanded])
+elif "windows" in os_type:
+    subprocess.run(["ssh-add", ssh_path_expanded])
+else:
+    subprocess.run(["ssh-add", ssh_path_expanded])
+
+# Step 8.1: Persist SSH key if needed
+if "linux" in os_type:
+    print("Note: SSH key won't persist after reboot unless added on shell startup.")
+    persist = input("Do you want to auto-load this key on terminal startup? (y/n): ").strip().lower()
+    if persist == "y":
+        shell_rc = os.path.expanduser("~/.bashrc")
+        if os.environ.get("SHELL", "").endswith("zsh"):
+            shell_rc = os.path.expanduser("~/.zshrc")
+
+        agent_line = 'eval "$(ssh-agent -s)"\n'
+        add_line = f"ssh-add {ssh_path_expanded}\n"
+
+        try:
+            with open(shell_rc, "a") as rcfile:
+                rcfile.write(f"\n# Auto-load SSH key for Git\n{agent_line}{add_line}")
+            print(f"SSH auto-load added to {shell_rc}.")
+        except Exception as e:
+            print("Failed to write auto-load config:", e)
+elif "darwin" in os_type:
+    print("macOS detected. Key was added to Keychain using: ssh-add --apple-use-keychain")
+elif "windows" in os_type:
+    print("Windows detected. OpenSSH agent handles persistence automatically.")
+
+# Step 9: Show public key
 print("Your SSH Public Key:")
 with open(pub_key_path, "r") as pubkey_file:
     public_key = pubkey_file.read()
     print(public_key)
 
-os_type = platform.system().lower()
-clipboard_copied = False
-
+# Step 10: Copy to clipboard
 print("Checking for clipboard tool...")
-
 try:
     if "linux" in os_type:
         session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
-        wayland_display = os.environ.get("WAYLAND_DISPLAY")
-        is_wayland = "wayland" in session_type or wayland_display
+        is_wayland = "wayland" in session_type or os.environ.get("WAYLAND_DISPLAY")
 
         if is_wayland:
-            print("Wayland session detected. Using wl-copy.")
             if shutil.which("wl-copy"):
-                copied = try_clipboard_copy(f"echo '{public_key}' | wl-copy")
-                if copied:
+                if try_clipboard_copy(f"echo '{public_key}' | wl-copy"):
                     clipboard_copied = True
                     print("SSH key copied using wl-copy.")
-                else:
-                    print("Clipboard command ran but may not have copied. Paste manually if needed.")
-            else:
-                print("wl-copy not found. Attempting to install wl-clipboard...")
-                try:
-                    if hasattr(os, "geteuid") and os.geteuid() == 0:
-                        subprocess.run(["apt", "update"], check=True)
-                        subprocess.run(["apt", "install", "-y", "wl-clipboard"], check=True)
-                    elif shutil.which("sudo"):
-                        subprocess.run(["sudo", "apt", "update"], check=True)
-                        subprocess.run(["sudo", "apt", "install", "-y", "wl-clipboard"], check=True)
-                    else:
-                        raise PermissionError("No sudo/root access")
-
-                    if shutil.which("wl-copy"):
-                        copied = try_clipboard_copy(f"echo '{public_key}' | wl-copy")
-                        if copied:
-                            clipboard_copied = True
-                            print("SSH key copied using wl-copy after install.")
-                        else:
-                            print("Clipboard command ran but may not have copied. Paste manually if needed.")
-                except Exception as e:
-                    print("Failed to install wl-clipboard:", e)
-
+            elif shutil.which("sudo"):
+                subprocess.run(["sudo", "apt", "install", "-y", "wl-clipboard"], check=True)
         else:
-            print("X11 session detected or fallback mode. Using xclip.")
             if shutil.which("xclip"):
-                copied = try_clipboard_copy(f"echo '{public_key}' | xclip -selection clipboard")
-                if copied:
+                if try_clipboard_copy(f"echo '{public_key}' | xclip -selection clipboard"):
                     clipboard_copied = True
                     print("SSH key copied using xclip.")
-                else:
-                    print("Clipboard command ran but may not have copied. Paste manually if needed.")
-            else:
-                print("xclip not found. Attempting to install it...")
-                try:
-                    if hasattr(os, "geteuid") and os.geteuid() == 0:
-                        subprocess.run(["apt", "update"], check=True)
-                        subprocess.run(["apt", "install", "-y", "xclip"], check=True)
-                    elif shutil.which("sudo"):
-                        subprocess.run(["sudo", "apt", "update"], check=True)
-                        subprocess.run(["sudo", "apt", "install", "-y", "xclip"], check=True)
-                    else:
-                        raise PermissionError("No sudo/root access")
-
-                    if shutil.which("xclip"):
-                        copied = try_clipboard_copy(f"echo '{public_key}' | xclip -selection clipboard")
-                        if copied:
-                            clipboard_copied = True
-                            print("SSH key copied using xclip after install.")
-                        else:
-                            print("Clipboard command ran but may not have copied. Paste manually if needed.")
-                except Exception as e:
-                    print("Failed to install xclip:", e)
-
-    elif "darwin" in os_type:
-        if shutil.which("pbcopy"):
-            copied = try_clipboard_copy(f"echo '{public_key}' | pbcopy")
-            if copied:
-                clipboard_copied = True
-                print("SSH key copied using pbcopy.")
-            else:
-                print("Clipboard command ran but may not have copied. Paste manually if needed.")
-        else:
-            print("pbcopy not found on macOS.")
-
-    elif "windows" in os_type:
-        if shutil.which("clip"):
-            copied = try_clipboard_copy("clip", input_text=public_key)
-            if copied:
-                clipboard_copied = True
-                print("SSH key copied using clip.")
-            else:
-                print("Clipboard command ran but may not have copied. Paste manually if needed.")
-        else:
-            print("clip command not found on Windows.")
-
-    else:
-        print("Unknown OS. Clipboard copy skipped.")
-
+            elif shutil.which("sudo"):
+                subprocess.run(["sudo", "apt", "install", "-y", "xclip"], check=True)
+    elif "darwin" in os_type and shutil.which("pbcopy"):
+        if try_clipboard_copy(f"echo '{public_key}' | pbcopy"):
+            clipboard_copied = True
+            print("SSH key copied using pbcopy.")
+    elif "windows" in os_type and shutil.which("clip"):
+        if try_clipboard_copy("clip", input_text=public_key):
+            clipboard_copied = True
+            print("SSH key copied using clip.")
 except Exception as e:
     print("Clipboard copy failed:", e)
 
 if not clipboard_copied:
-    print("You can still copy the SSH key manually from above.")
+    print("Clipboard may not have worked. Copy the SSH key manually above.")
 
-print("Done. SSH key is printed above and copied to clipboard (if supported). Paste it into your GitHub SSH settings.")
+print("Done. Paste the key into your GitHub SSH settings.")
