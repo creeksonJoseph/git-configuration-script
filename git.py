@@ -63,7 +63,6 @@ subprocess.run([
     "-N", ""
 ])
 
-
 # Step 6: Set Git user config
 print("Setting Git config...")
 subprocess.run(config_args + ["user.name", name])
@@ -80,7 +79,6 @@ subprocess.run(["ssh-add", ssh_path_expanded])
 
 # Step 9: Copy key to clipboard depending on OS
 print("Your SSH Public Key:")
-pub_key_path = f"{ssh_path_expanded}.pub"
 with open(pub_key_path, "r") as pubkey_file:
     public_key = pubkey_file.read()
     print(public_key)
@@ -101,22 +99,39 @@ try:
             clipboard_copied = True
             print("SSH key copied using wl-copy.")
         else:
-            print("No clipboard tool found. Installing xclip...")
+            print("No clipboard tool found. Attempting to install xclip...")
+
             try:
-                subprocess.run(["sudo", "apt", "update"], check=True)
-                subprocess.run(["sudo", "apt", "install", "-y", "xclip"], check=True)
-                subprocess.run(f"echo '{public_key}' | xclip -selection clipboard", shell=True)
-                clipboard_copied = True
-                print("SSH key copied using installed xclip.")
-            except subprocess.CalledProcessError:
-                print("Failed to install xclip. Please install it manually.")
-    elif "darwin" in os_type:  # macOS
+                if hasattr(os, "geteuid") and os.geteuid() == 0:
+                    subprocess.run(["apt", "update"], check=True)
+                    subprocess.run(["apt", "install", "-y", "xclip"], check=True)
+                elif shutil.which("sudo"):
+                    subprocess.run(["sudo", "apt", "update"], check=True)
+                    subprocess.run(["sudo", "apt", "install", "-y", "xclip"], check=True)
+                else:
+                    print("Cannot install xclip — 'sudo' is not available and you're not root.")
+                    print("Please install it manually: apt install xclip")
+                    raise PermissionError("Insufficient privileges")
+
+                # Try copying again
+                if shutil.which("xclip"):
+                    subprocess.run(f"echo '{public_key}' | xclip -selection clipboard", shell=True)
+                    clipboard_copied = True
+                    print("SSH key copied using installed xclip.")
+                else:
+                    print("xclip not found even after install.")
+
+            except Exception as e:
+                print("Clipboard install or copy failed:", e)
+
+    elif "darwin" in os_type:
         if shutil.which("pbcopy"):
             subprocess.run(f"echo '{public_key}' | pbcopy", shell=True)
             clipboard_copied = True
             print("SSH key copied using pbcopy.")
         else:
             print("pbcopy not found on macOS.")
+
     elif "windows" in os_type:
         if shutil.which("clip"):
             subprocess.run("clip", input=public_key.encode(), shell=True)
@@ -124,8 +139,10 @@ try:
             print("SSH key copied using clip.")
         else:
             print("clip command not found on Windows.")
+
     else:
         print("Unknown OS. Clipboard copy skipped.")
+
 except Exception as e:
     print("Clipboard copy failed:", e)
 
