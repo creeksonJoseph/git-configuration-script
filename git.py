@@ -36,12 +36,24 @@ if scope == "global":
 # Step 5: Generate SSH key
 ssh_path = f"~/.ssh/{key_name}"
 ssh_path_expanded = os.path.expanduser(ssh_path)
+pub_key_path = f"{ssh_path_expanded}.pub"
 
-# Check for existing key
-if os.path.exists(f"{ssh_path_expanded}.pub"):
-    overwrite = input("Warning: SSH key already exists. Overwrite? (y/n): ").strip().lower()
-    if overwrite != "y":
-        print("Canceled.")
+# Check if either private or public key already exists
+if os.path.exists(ssh_path_expanded) or os.path.exists(pub_key_path):
+    print("Warning: SSH key with that name already exists.")
+    choice = input("Do you want to overwrite it? (y/n): ").strip().lower()
+    if choice == "y":
+        try:
+            if os.path.exists(ssh_path_expanded):
+                os.remove(ssh_path_expanded)
+            if os.path.exists(pub_key_path):
+                os.remove(pub_key_path)
+            print("Old key deleted.")
+        except Exception as e:
+            print("Failed to delete existing keys:", e)
+            exit()
+    else:
+        print("Canceled. Use a different SSH key name.")
         exit()
 
 print("Generating SSH key...")
@@ -50,6 +62,7 @@ subprocess.run([
     "-f", ssh_path_expanded,
     "-N", ""
 ])
+
 
 # Step 6: Set Git user config
 print("Setting Git config...")
