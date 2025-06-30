@@ -38,7 +38,7 @@ ssh_path = f"~/.ssh/{key_name}"
 ssh_path_expanded = os.path.expanduser(ssh_path)
 pub_key_path = f"{ssh_path_expanded}.pub"
 
-# Check if either private or public key already exists
+# Check if key exists
 if os.path.exists(ssh_path_expanded) or os.path.exists(pub_key_path):
     print("Warning: SSH key with that name already exists.")
     choice = input("Do you want to overwrite it? (y/n): ").strip().lower()
@@ -77,7 +77,7 @@ print("Starting SSH agent and adding key...")
 subprocess.run("eval $(ssh-agent -s)", shell=True)
 subprocess.run(["ssh-add", ssh_path_expanded])
 
-# Step 9: Copy key to clipboard depending on OS
+# Step 9: Show and optionally copy the public key
 print("Your SSH Public Key:")
 with open(pub_key_path, "r") as pubkey_file:
     public_key = pubkey_file.read()
@@ -90,39 +90,63 @@ print("Checking for clipboard tool...")
 
 try:
     if "linux" in os_type:
-        if shutil.which("xclip"):
-            subprocess.run(f"echo '{public_key}' | xclip -selection clipboard", shell=True)
-            clipboard_copied = True
-            print("SSH key copied using xclip.")
-        elif shutil.which("wl-copy"):
-            subprocess.run(f"echo '{public_key}' | wl-copy", shell=True)
-            clipboard_copied = True
-            print("SSH key copied using wl-copy.")
+        session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+        wayland_display = os.environ.get("WAYLAND_DISPLAY")
+        is_wayland = "wayland" in session_type or wayland_display
+
+        if is_wayland:
+            print("Wayland session detected. Using wl-copy.")
+            if shutil.which("wl-copy"):
+                subprocess.run(f"echo '{public_key}' | wl-copy", shell=True)
+                clipboard_copied = True
+                print("SSH key copied using wl-copy.")
+            else:
+                print("wl-copy not found. Attempting to install wl-clipboard...")
+                try:
+                    if hasattr(os, "geteuid") and os.geteuid() == 0:
+                        subprocess.run(["apt", "update"], check=True)
+                        subprocess.run(["apt", "install", "-y", "wl-clipboard"], check=True)
+                    elif shutil.which("sudo"):
+                        subprocess.run(["sudo", "apt", "update"], check=True)
+                        subprocess.run(["sudo", "apt", "install", "-y", "wl-clipboard"], check=True)
+                    else:
+                        raise PermissionError("No sudo/root access")
+
+                    if shutil.which("wl-copy"):
+                        subprocess.run(f"echo '{public_key}' | wl-copy", shell=True)
+                        clipboard_copied = True
+                        print("SSH key copied using wl-copy after install.")
+                    else:
+                        print("wl-copy still not found after install.")
+                except Exception as e:
+                    print("Failed to install wl-clipboard:", e)
+
         else:
-            print("No clipboard tool found. Attempting to install xclip...")
+            print("X11 session detected or fallback mode. Using xclip.")
+            if shutil.which("xclip"):
+                subprocess.run(f"echo '{public_key}' | xclip -selection clipboard", shell=True)
+                clipboard_copied = True
+                print("SSH key copied using xclip.")
+            else:
+                print("xclip not found. Attempting to install it...")
+                try:
+                    if hasattr(os, "geteuid") and os.geteuid() == 0:
+                        subprocess.run(["apt", "update"], check=True)
+                        subprocess.run(["apt", "install", "-y", "xclip"], check=True)
+                    elif shutil.which("sudo"):
+                        subprocess.run(["sudo", "apt", "update"], check=True)
+                        subprocess.run(["sudo", "apt", "install", "-y", "xclip"], check=True)
+                    else:
+                        raise PermissionError("No sudo/root access")
 
-            try:
-                if hasattr(os, "geteuid") and os.geteuid() == 0:
-                    subprocess.run(["apt", "update"], check=True)
-                    subprocess.run(["apt", "install", "-y", "xclip"], check=True)
-                elif shutil.which("sudo"):
-                    subprocess.run(["sudo", "apt", "update"], check=True)
-                    subprocess.run(["sudo", "apt", "install", "-y", "xclip"], check=True)
-                else:
-                    print("Cannot install xclip — 'sudo' is not available and you're not root.")
-                    print("Please install it manually: apt install xclip")
-                    raise PermissionError("Insufficient privileges")
-
-                # Try copying again
-                if shutil.which("xclip"):
-                    subprocess.run(f"echo '{public_key}' | xclip -selection clipboard", shell=True)
-                    clipboard_copied = True
-                    print("SSH key copied using installed xclip.")
-                else:
-                    print("xclip not found even after install.")
-
-            except Exception as e:
-                print("Clipboard install or copy failed:", e)
+                    if shutil.which("xclip"):
+                        subprocess.run(f"echo '{public_key}' | xclip -selection clipboard", shell=True)
+                        clipboard_copied = True
+                        print("SSH key copied using xclip after install.")
+                    else:
+                        print("xclip still not found after install.")
+                except Exception as e:
+                    print("Failed to install xclip:", e)
 
     elif "darwin" in os_type:
         if shutil.which("pbcopy"):
