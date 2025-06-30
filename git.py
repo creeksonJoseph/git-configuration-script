@@ -1,4 +1,5 @@
 import os
+import platform
 import subprocess
 
 # Step 1: Get user info
@@ -50,9 +51,28 @@ print("🚀 Adding key to SSH agent...")
 subprocess.run("eval $(ssh-agent -s)", shell=True)
 subprocess.run(["ssh-add", ssh_path_expanded])
 
-# Step 9: Show public key
+# Step 9: Copy key to clipboard depending on OS
 print("📋 Public SSH Key:")
-with open(f"{ssh_path_expanded}.pub", "r") as pubkey_file:
-    print(pubkey_file.read())
+pub_key_path = f"{ssh_path_expanded}.pub"
+with open(pub_key_path, "r") as pubkey_file:
+    public_key = pubkey_file.read()
+    print(public_key)
 
-print("\n✅ All done! Paste that key into your GitHub SSH settings.")
+    os_type = platform.system().lower()
+
+    print("📎 Copying SSH key to clipboard...")
+
+    try:
+        if "linux" in os_type:
+            subprocess.run("xclip -version", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(f"echo '{public_key}' | xclip -selection clipboard", shell=True)
+        elif "darwin" in os_type:  # macOS
+            subprocess.run(f"echo '{public_key}' | pbcopy", shell=True)
+        elif "windows" in os_type:
+            subprocess.run("clip", input=public_key.encode(), shell=True)
+        else:
+            print("⚠️ Unknown OS. Couldn’t copy to clipboard.")
+    except Exception as e:
+        print("❌ Clipboard copy failed:", e)
+
+print("\n✅ All done! SSH key printed above & copied to clipboard (if supported). Paste it into your GitHub SSH settings.")
